@@ -8,8 +8,16 @@ local libsolaceName = "libsolclient.so"  -- Adjust the name of your library
 ffi.cdef[[
     typedef void* solClient_opaqueSession_pt;
     typedef void* solClient_opaqueMsg_pt;
-    typedef void* solClient_session_eventCallbackInfo_pt;
     typedef void* solClient_opaqueContext_pt;
+
+    const char* solClient_session_eventToString(int sessionEvent);
+
+    typedef struct solClient_session_eventCallbackInfo {
+        const char *sessionEvent;
+        const char *responseCode;
+        const char *info_p;
+        void *correlation_p;
+    } solClient_session_eventCallbackInfo_t, *solClient_session_eventCallbackInfo_pt;
 
     typedef int (*solClient_rxMsgCallback)(solClient_opaqueSession_pt session_p, solClient_opaqueMsg_pt msg_p, void* user_p);
     typedef void (*solClient_sessionEventCallback)(solClient_opaqueSession_pt session_p, solClient_session_eventCallbackInfo_pt eventInfo_p, void* user_p);
@@ -37,19 +45,19 @@ ffi.cdef[[
     } solClient_destination_t;
     
     int solClient_initialize(int logLevel, const char *logFile);
-    int solClient_context_create(int createThreadFlags, solClient_opaqueContext_pt *context_p, 
+    int solClient_context_create(char **props, solClient_opaqueContext_pt *context_p, 
                                  void *contextFuncInfo, size_t contextFuncInfoSize);
     int solClient_session_create(char **sessionProps, solClient_opaqueContext_pt context_p, 
                                  solClient_opaqueSession_pt *session_p, void *sessionFuncInfo, 
                                  size_t sessionFuncInfoSize);
     int solClient_session_connect(solClient_opaqueSession_pt session_p);
-    int solClient_msg_setDestination(solClient_opaqueMsg_pt msg_p, solClient_destination_t destination, size_t destinationSize);
+    int solClient_msg_setDestination(solClient_opaqueMsg_pt msg_p, solClient_destination_t *destination, size_t destinationSize);
     int solClient_msg_setDeliveryMode(solClient_opaqueMsg_pt msg_p, int delivery_mode);
     int solClient_msg_setBinaryAttachment(solClient_opaqueMsg_pt msg_p, void *binaryAttachment, size_t attachmentSize);
     int solClient_session_sendMsg(solClient_opaqueSession_pt session_p, solClient_opaqueMsg_pt msg_p);
     int solClient_cleanup(void);
-    void solClient_msg_alloc(solClient_opaqueMsg_pt *msg_p);
-    void solClient_msg_free(solClient_opaqueMsg_pt *msg_p);
+    int solClient_msg_alloc(solClient_opaqueMsg_pt *msg_p);
+    int solClient_msg_free(solClient_opaqueMsg_pt *msg_p);
 ]]
 
 -- Function to load Solace shared library
@@ -68,20 +76,69 @@ function solaceLib.initialize()
   if err then
     return err
   end
-  SolaceKongLib.solClient_initialize(7, nil)  -- Assuming 0 is the log level for default
   return nil
 end
+
+-- Define a default callback for receiving messages (empty function)
+local function sessionMessageReceiveCallback(session_p, msg_p, user_p)
+  kong.log.err("ANTOINEEEEEEE 1")
+  -- Implement the callback functionality if needed
+  return 0 -- Return the appropriate return code
+end
+
+-- Define a session event callback function
+local function sessionEventCallback(session_p, eventInfo_p, user_p)
+  kong.log.err("session_eventCallback() called 1:")
+
+  local sessionEvent = eventInfo_p.sessionEvent
+
+  -- local sessionEventStr = ffi.string(solClient_session_eventToString(sessionEvent)) or "Unknown event"
+  return
+end
+
 
 -- Create a session context
 function solaceLib.createSessionAndConnect(host, vpn, username, password)
 
-  
   -- Create context
   local context_p = ffi.new("solClient_opaqueContext_pt[1]")
-  
   local contextFuncInfo = ffi.new("solClient_context_createFuncInfo_t")
 
-  local rc = SolaceKongLib.solClient_context_create(0, context_p, contextFuncInfo, ffi.sizeof(contextFuncInfo))
+  -- Create session
+  local session_p = ffi.new("solClient_opaqueSession_pt[1]")
+  local sessionFuncInfo = ffi.new("solClient_session_createFuncInfo_t")
+
+  -- Create session properties
+  local sessionProps = ffi.new("char*[20]")
+
+  local msg_p = ffi.new("solClient_opaqueMsg_pt[1]")
+
+  -- Create C function pointers for the Lua callbacks
+  local messageReceiveCallback = ffi.cast("solClient_rxMsgCallback", sessionMessageReceiveCallback)
+  local sessionEventCallbackPtr = ffi.cast("solClient_sessionEventCallback", sessionEventCallback)
+  
+  
+
+  SolaceKongLib.solClient_initialize(7, nil)  -- Assuming 0 is the log level for default
+
+  -- Define the context properties array (this corresponds to SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD in C)
+  local SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD = ffi.new("char*[15]")
+
+  -- Default context properties (replicating values in C code)
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[0] = ffi.cast("char*", "CONTEXT_TIME_RES_MS")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[1] = ffi.cast("char*", "50")
+
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[2] = ffi.cast("char*", "CONTEXT_CREATE_THREAD")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[3] = ffi.cast("char*", "1")
+
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[4] = ffi.cast("char*", "CONTEXT_THREAD_AFFINITY")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[5] = ffi.cast("char*", "1")
+
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[6] = ffi.cast("char*", "CONTEXT_THREAD_AFFINITY_CPU_LIST")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[7] = ffi.cast("char*", "1")
+
+
+  local rc = SolaceKongLib.solClient_context_create(SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD, context_p, contextFuncInfo, ffi.sizeof(contextFuncInfo))
   if rc ~= 0 then
     return nil, "Failed to create context"
   end
@@ -90,9 +147,6 @@ function solaceLib.createSessionAndConnect(host, vpn, username, password)
   if context_p[0] == ffi.NULL then
     return nil, "Context pointer is NULL"
   end
-
-  -- Create session properties
-  local sessionProps = ffi.new("char*[20]")
 
   -- Set each property to point to a C string
   sessionProps[0] = ffi.cast("char*", nil)
@@ -110,33 +164,11 @@ function solaceLib.createSessionAndConnect(host, vpn, username, password)
   sessionProps[10] = ffi.cast("char*", "SESSION_CONNECT_BLOCKING")
   sessionProps[11] = ffi.cast("char*", "1")
 
-  sessionProps[12] = ffi.cast("char*", "SESSION_BLOCK_WHILE_CONNECTING")
-  sessionProps[13] = ffi.cast("char*", "1")
+  sessionProps[12] = ffi.cast("char*", "SESSION_KEEP_ALIVE_INTERVAL_MS")
+  sessionProps[13] = ffi.cast("char*", "0")
 
   sessionProps[14] = ffi.cast("char*", nil)
   
-
-  -- Create session
-  local session_p = ffi.new("solClient_opaqueSession_pt[1]")
-
-  -- Define a default callback for receiving messages (empty function)
-  local function sessionMessageReceiveCallback(session_p, msg_p, user_p)
-    -- Implement the callback functionality if needed
-    return 0 -- Return the appropriate return code
-  end
-
-  -- Define a session event callback function
-  local function sessionEventCallback(session_p, eventInfo_p, user_p)
-    -- Handle session events here
-    return
-  end
-
-  -- Create C function pointers for the Lua callbacks
-  local messageReceiveCallback = ffi.cast("solClient_rxMsgCallback", sessionMessageReceiveCallback)
-  local sessionEventCallbackPtr = ffi.cast("solClient_sessionEventCallback", sessionEventCallback)
-  
-  -- Set session function info with callbacks
-  local sessionFuncInfo = ffi.new("solClient_session_createFuncInfo_t")
 
   -- Assign callbacks or leave as NULL
   sessionFuncInfo.rxMsgInfo.callback_p = messageReceiveCallback
@@ -174,49 +206,55 @@ function solaceLib.createSessionAndConnect(host, vpn, username, password)
     return nil, "Session pointer is NULL"
   end
 
-  -- Connect session
-  rc = SolaceKongLib.solClient_session_connect(session_p[0])
+  local rc = SolaceKongLib.solClient_session_connect(session_p[0])
   if rc ~= 0 then
-    kong.log.err("ANTOINE issue with session: ", rc)
+      ngx.log(ngx.ERR, "Antoine Solace connection failed with return code: " .. rc)
+  else
+      ngx.log(ngx.INFO, "Antoine Solace connection successful!")
   end
 
-  ngx.sleep(1)
+  kong.log.err("ANTOINE ok")
 
   -- local process = assert(io.popen("export LD_LIBRARY_PATH=/usr/local/kong/solace/lib/linux/x64:$LD_LIBRARY_PATH && cd .. && cd bin && pwd && ls && ./TopicPublisher tcp://host.docker.internal:55554 default admin admin tutorial/topic", "r"))
   -- local output = process:read("*a")  -- Read full output
   -- process:close()
 
-  return session_p, context_p, nil  -- Return session and context
-end
 
--- Send a message
-function solaceLib.sendMessage(session_p)
-  if not session_p then
-    return
+  local rc = SolaceKongLib.solClient_msg_alloc(msg_p)
+  if rc ~= 0 then
+    kong.log.err("solClient_msg_alloc failed with error: ", rc)
+  else
+      kong.log.err("Message allocated successfully")
   end
 
-  local msg_p = ffi.new("solClient_opaqueMsg_pt[1]")
-  SolaceKongLib.solClient_msg_alloc(msg_p)
-
-  local delivery_mode = 1 -- SOLCLIENT_DELIVERY_MODE_DIRECT
-  local delivery_result = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
-
+  local delivery_mode = 0
+  rc = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
+  if rc ~= 0 then
+    kong.log.err("solClient_msg_setDeliveryMode failed with error: ", rc)
+  else
+      kong.log.err("solClient_msg_setDeliveryMode successfully")
+  end
 
   local destination = ffi.new("solClient_destination_t")
   destination.destType = 0
-  destination.dest = ffi.cast("char*", "tutorial/topic")
+  destination.dest = ffi.cast("const char*", "tutorial/topic")
 
   -- Set the destination for the message
-  local set_dest_result = SolaceKongLib.solClient_msg_setDestination(msg_p[0], destination, ffi.sizeof(destination))
+  rc = SolaceKongLib.solClient_msg_setDestination(msg_p[0], destination, ffi.sizeof(destination))
+  if rc ~= 0 then
+    kong.log.err("solClient_msg_setDestination failed with error1: ", rc)
+  else
+      kong.log.err("solClient_msg_setDestination successfully")
+  end
 
   local text_p = "Hello world!"
-
   -- Convert the Lua string to a C-style string
   local binaryAttachment = ffi.new("char[?]", #text_p, text_p)
 
   SolaceKongLib.solClient_msg_setBinaryAttachment(msg_p[0], binaryAttachment, #text_p)
 
   local test_success = SolaceKongLib.solClient_session_sendMsg(session_p[0], msg_p[0])
+  kong.log.err("ANTOINE Message: ", test_success)
 
   SolaceKongLib.solClient_msg_free(msg_p)
 end

@@ -22,7 +22,7 @@ endif
 _REV=$(shell uname -r)
 ARCHFLAGS:=
 ifeq ($(SIXTY_FOUR_COMPAT),) 
-ifeq ($(_ARCH),aarch64)
+ifeq ($(_ARCH),x86_64)
     ARCHFLAGS:=-D_LINUX_X86_64
     SIXTY_FOUR_COMPAT:=
     LINUXLIBDIR=$(CCSMPHOME)/obj_Linux26-x86_64_debug/lib

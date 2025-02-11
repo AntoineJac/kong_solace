@@ -1,7 +1,27 @@
 local typedefs = require "kong.db.schema.typedefs"
 
+local list_properties_forbidden = {
+  "SESSION_USERNAME",
+  "SESSION_PASSWORD",
+  "SESSION_HOST",
+  "SESSION_PORT",
+  "SESSION_VPN_NAME",
+  "SESSION_CONNECT_TIMEOUT_MS",
+  "SESSION_CONNECT_BLOCKING"
+}
 
 local PLUGIN_NAME = "debug-logging"
+
+
+-- local function validate_properties(list_properties_forbidden)
+--   for _, property in ipairs(properties) do
+--     if not properties in list_properties then
+--       return false, "Invalid property: " .. property
+--     end
+--   end
+
+--   return true
+-- end
 
 
 local schema = {
@@ -15,41 +35,16 @@ local schema = {
         type = "record",
         fields = {
           {
-            log_string = {
-              description = "add this into the log",
-              required = true,
-              type = "string",
-              referenceable = true,
-              default = "default_value",
+            solace_sessions_propertires = {
+              description = "the Solace session properties",
+              type = "array",
+              elements = { type = "string" },
+              -- custom_validator = validate_sessions_properties,
             },
           },
           {
             log_scope = {
               description = "Display the scope of the bearer token in the logs",
-              required = true,
-              type = "boolean",
-              default = false,
-            },
-          },
-          {
-            log_client_id = {
-              description = "Display the client id of the bearer token in the logs",
-              required = true,
-              type = "boolean",
-              default = false,
-            },
-          },
-          {
-            log_request_body = {
-              description = "Display the request body of the request in the logs",
-              required = true,
-              type = "boolean",
-              default = false,
-            },
-          },
-          {
-            log_response_body = {
-              description = "Display the response body of the request token in the logs",
               required = true,
               type = "boolean",
               default = false,

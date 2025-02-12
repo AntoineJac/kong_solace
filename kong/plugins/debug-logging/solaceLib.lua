@@ -123,11 +123,25 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
     local sessionEvent = eventInfo_p.sessionEvent
     if sessionEvent and sessionEvent ~= ffi.NULL then
       sessionEvent = tonumber(ffi.cast("intptr_t", sessionEvent))
-      if sessionEvent == 6 then
-        kong.ctx.shared.ack_received = true
-      end
-      print("Session event: ", sessionEvent)
+    else
+      sessionEvent = 0
     end
+    
+    if sessionEvent == 6 then
+      kong.ctx.shared.ack_received = true
+    end
+
+    if sessionEvent == 0 then
+      -- we use a blocking connection so no need to use up event
+    end
+
+    if sessionEvent == 1 then
+      local session_id = ngx.md5(tostring(session_p))
+      -- mandatory to delete session outside of the callback to avoid malloc
+      kong.worker_events.post_local("solaceFunction", "delete", session_id)
+    end
+
+    print("Session event: ", sessionEvent)
 
     local responseCode = eventInfo_p.responseCode
     print("Response Code: ", responseCode[0])

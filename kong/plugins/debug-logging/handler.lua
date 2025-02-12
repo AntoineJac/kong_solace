@@ -6,9 +6,8 @@ local plugin = {
 local solaceLib = require("kong.plugins.debug-logging.solaceLib")
 
 local sdk_initialized = false
-kong.solaceSessions = {}
-kong.solaceContext = nil
-
+local solaceSessions = {}
+local solaceContext = nil
 
 
 local isLoaded, err = solaceLib.loadSolaceLibrary()
@@ -32,12 +31,42 @@ function plugin:init_worker()
   
   -- Pass the necessary properties to create context
   -- One context for all workers - maybe one by worker in future
-  if not kong.solaceContext then
+  if not solaceContext then
     kong.log.err("CONTEXT CREATED")
-    kong.solaceContext, err = solaceLib.createContext()
+    solaceContext, err = solaceLib.createContext()
     if err then
       return "issue when creating context, code: " .. err
     end
+  end
+
+  local max_pool = 2
+
+  -- Should we create a real session and lock process
+  for i = 1, max_pool do
+    kong.log.err("SESSION CREATION")
+    local session_new, err = solaceLib.createSession(solaceContext)
+    if err then
+      kong.log.err("SESSION CREATION FAILED")
+    end
+
+    kong.log.err("SESSION CONNECTION")
+    -- Connect to the session
+    local ok, err = solaceLib.connectSession(session_new)
+    if err then
+      -- Destroy the session directly as no need to wait
+      local _, err = solaceLib.solClient_session_destroy(session_new)
+      if err then
+        kong.log.err("Issue when cleaning session ", i, ", error: ", err)
+      end
+
+      kong.log.err("SESSION CONNECTION FAILED")
+    end
+
+    if ok then
+      kong.log.err("SESSION CONNECTED TO SOLACE")
+    end
+
+    table.insert(solaceSessions, session_new)
   end
 
   -- maybe create on context by ngx.worker.id()
@@ -50,7 +79,7 @@ function plugin:configure()
   end
 
   -- Clean up the Solace sessions
-  for i, session in ipairs(kong.solaceSessions) do
+  for i, session in ipairs(solaceSessions) do
     -- Spawn a new thread to clean up the session
     ngx.thread.spawn(function()
       ngx.sleep(1) -- wait one second before destroying the session
@@ -64,7 +93,7 @@ function plugin:configure()
       kong.log.err("SESSION DESTROYED")
       
       -- Remove the session from the solaceSessions list
-      table.remove(kong.solaceSessions, i)
+      table.remove(solaceSessions, i)
     end)
   end
 
@@ -76,12 +105,13 @@ function plugin:access(plugin_conf)
     return
   end
 
+  kong.ctx.shared.ack_received = false
   local max_pool = 2
 
   -- Should we create a real session and lock process
-  if #kong.solaceSessions < max_pool then
+  if #solaceSessions < max_pool then
     kong.log.err("SESSION CREATION")
-    local session_new, err = solaceLib.createSession(kong.solaceContext)
+    local session_new, err = solaceLib.createSession(solaceContext)
     if err then
       kong.response.exit(500, "Issue when creating the session with err: " .. err)
     end
@@ -103,11 +133,11 @@ function plugin:access(plugin_conf)
       kong.log.err("SESSION CONNECTED TO SOLACE")
     end
 
-    table.insert(kong.solaceSessions, session_new)
+    table.insert(solaceSessions, session_new)
   end
 
-  local random_index = math.random(#kong.solaceSessions)
-  local session_p = kong.solaceSessions[random_index]
+  local random_index = math.random(#solaceSessions)
+  local session_p = solaceSessions[random_index]
   kong.log.err("PICKED SESSION ", random_index)
 
   -- Pass the necessary properties and send the message
@@ -116,11 +146,23 @@ function plugin:access(plugin_conf)
     kong.response.exit(500, "Issue when sending the message with err: " .. err)
   end
 
-  if ok then
-    print("Message sent to Solace!")
+  if not ok then
+    kong.response.exit(500, "Message no sent within the send window")
+  end
+
+  
+  local start_time = math.floor(ngx.now())
+  local max_wait_time = 1.5
+
+  while (math.floor(ngx.now()) - start_time) < max_wait_time do
+    if kong.ctx.shared.ack_received == true then
+        kong.response.exit(200, "Message has been sent to Solace")
+    end
+
+    ngx.sleep(0.1)  -- Sleep for 0.1s to avoid CPU overload
   end
   
-  ngx.sleep(2)
+  kong.response.exit(500, "Message no sent within the send window")
 end
 
 -- Runs in the 'access' phase

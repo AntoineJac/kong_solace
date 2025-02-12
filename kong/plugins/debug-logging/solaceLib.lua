@@ -98,7 +98,8 @@ end
 
 -- Initialize the Solace API
 function solaceLib.initialize()
-  local rc = SolaceKongLib.solClient_initialize(7, nil)
+  local sdk_log_level = 0
+  local rc = SolaceKongLib.solClient_initialize(sdk_log_level, nil)
   if rc ~= 0 then
     return nil, "issue when initlalizing the lib, code: " .. rc
   end
@@ -108,29 +109,28 @@ end
 
 -- Define a default callback for receiving messages (empty function)
 local function sessionMessageReceiveCallback(session_p, msg_p, user_p)
-  kong.log.err("ANTOINE sessionMessageReceiveCallback")
+  print("SessionMessageReceiveCallback")
 
   return 0
 end
 
 -- Define a session event callback function
 local function sessionEventCallback(session_p, eventInfo_p, user_p)
-  kong.log.err("ANTOINE sessionEventCallback")
+  -- do not use kong.log as not in same thread
+  print("SessionEventCallback")
 
-  if eventInfo_p then
+  if eventInfo_p and eventInfo_p ~= ffi.NULL then
     local sessionEvent = eventInfo_p.sessionEvent
-    kong.log.err("Session event: ", sessionEvent)
+    if sessionEvent and sessionEvent ~= ffi.NULL then
+      sessionEvent = tonumber(ffi.cast("intptr_t", sessionEvent))
+      if sessionEvent == 6 then
+        kong.ctx.shared.ack_received = true
+      end
+      print("Session event: ", sessionEvent)
+    end
 
     local responseCode = eventInfo_p.responseCode
-    kong.log.err("Response Code: ", responseCode[0])
-
-    local info = eventInfo_p.info_p
-    kong.log.err("Additional Info: ", info)
-
-    local correlation = eventInfo_p.correlation_p
-    kong.log.err("Correlation: ", correlation)
-  else
-    kong.log.err("eventInfo_p or eventInfo_p[0] is NULL.")
+    print("Response Code: ", responseCode[0])
   end
 end
 
@@ -145,13 +145,13 @@ function solaceLib.createContext()
   SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[1] = ffi.cast("char*", "50")
 
   SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[2] = ffi.cast("char*", "CONTEXT_CREATE_THREAD")
-  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[3] = ffi.cast("char*", "1")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[3] = ffi.cast("char*", "1") -- this is mandatory for running in Kong
 
   SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[4] = ffi.cast("char*", "CONTEXT_THREAD_AFFINITY")
-  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[5] = ffi.cast("char*", "0")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[5] = ffi.cast("char*", "0") -- keep Kong affinity
 
   SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[6] = ffi.cast("char*", "CONTEXT_THREAD_AFFINITY_CPU_LIST")
-  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[7] = ffi.cast("char*", "0")
+  SOLCLIENT_CONTEXT_PROPS_DEFAULT_WITH_CREATE_THREAD[7] = ffi.cast("char*", "0") -- keep Kong affinity
 
 
   -- Create context
@@ -251,7 +251,7 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_alloc failed, code: " .. rc
   end
 
-  local delivery_mode = 1
+  local delivery_mode = 16 -- be careful to convert the hexa from Solace doc
   rc = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
   if rc ~= 0 then
     return nil, "solClient_msg_setDeliveryMode failed, code: " .. rc
@@ -267,10 +267,10 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_setDestination failed, code: " .. rc
   end
 
-  -- rc = SolaceKongLib.solClient_msg_setAckImmediately(msg_p[0], true)
-  -- if rc ~= 0 then
-  --   return nil, "solClient_msg_setAckImmediately failed, code: " .. rc
-  -- end
+  rc = SolaceKongLib.solClient_msg_setAckImmediately(msg_p[0], true)
+  if rc ~= 0 then
+    return nil, "solClient_msg_setAckImmediately failed, code: " .. rc
+  end
 
   local text_p = "Hello world!"
   -- Convert the Lua string to a C-style string
@@ -288,7 +288,6 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_free failed, code: " .. rc
   end
 
-  ngx.sleep(2)
   return true
 end
 
@@ -297,14 +296,6 @@ function solaceLib.cleanup()
   local rc = SolaceKongLib.solClient_cleanup()
   if rc ~= 0 then
     return nil, "solClient_cleanup failed, code: " .. rc
-  end
-end
-
--- Cleanup the Solace Sessions
-function solaceLib.solClient_session_destroy(session_p)
-  local rc = SolaceKongLib.solClient_session_destroy(session_p)
-  if rc ~= 0 then
-    return nil, "solClient_session_destroy failed, code: " .. rc
   end
 end
 

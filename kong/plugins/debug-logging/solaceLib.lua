@@ -265,15 +265,17 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_alloc failed, code: " .. rc
   end
 
-  local delivery_mode = 16 -- be careful to convert the hexa from Solace doc
+  local delivery_mode = 16 -- Hexa so 0 for Direct and 16 for Persistent
   rc = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
   if rc ~= 0 then
     return nil, "solClient_msg_setDeliveryMode failed, code: " .. rc
   end
 
   local destination = ffi.new("solClient_destination_t")
-  destination.destType = 1
-  destination.dest = ffi.cast("const char*", "test")
+  destination.destType = 0 -- 0 for Topic and 1 for Queue
+
+  local dest = "tutorial/topic" -- Topic or Queue name
+  destination.dest = ffi.cast("const char*", dest)
 
   -- Set the destination for the message
   rc = SolaceKongLib.solClient_msg_setDestination(msg_p[0], destination, ffi.sizeof(destination))

@@ -21,7 +21,6 @@ function plugin:init_worker()
   end
 
   local err
-  
   sdk_initialized, err = solaceLib.initialize()
   if err then
     kong.log.err(err)
@@ -30,7 +29,6 @@ function plugin:init_worker()
 
   local worker_events = kong.worker_events
   worker_events.register(function(session_id)
-    kong.log.err("KONG ANTOINE")
     local _, err = solaceLib.solClient_session_destroy(kong.solaceSessions[session_id])
     if err then
       kong.log.err("Issue when cleaning session ", session_id, ", error: ", err)
@@ -51,10 +49,10 @@ function plugin:init_worker()
     end
   end
 
-  local max_pool = 2
+  local max_init_pool = 2
 
   -- Should we create a real session and lock process
-  for i = 1, max_pool do
+  for i = 1, max_init_pool do
     kong.log.err("SESSION CREATION")
     local session_new, err = solaceLib.createSession(kong.solaceContext)
     if err then
@@ -173,7 +171,10 @@ function plugin:access(plugin_conf)
     kong.response.exit(500, "Message no sent within the send window")
   end
 
-  
+  -- if deliveryMode == direct then
+  --   kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
+  -- end
+
   local start_time = math.floor(ngx.now())
   local max_wait_time = 1.5
 
@@ -193,17 +194,6 @@ function plugin:log()
   if not sdk_initialized then
     return
   end
-
-  -- -- solaceLib.cleanup()
-  -- local ok, err = solaceLib.cleanup()
-  -- if err then
-  --   kong.log.err(err)
-  --   return
-  -- end
-
-  -- if ok then
-  --   print("Cleanup complete!")
-  -- end
 end
 
 

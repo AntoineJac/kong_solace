@@ -6,6 +6,7 @@ local plugin = {
 local solaceLib = require("kong.plugins.debug-logging.solaceLib")
 local nkeys     = require "table.nkeys"
 local sdk_initialized = false
+local previous_session_hash
 kong.solaceSessions = {}
 kong.solaceContext = nil
 
@@ -29,14 +30,19 @@ function plugin:init_worker()
 
   local worker_events = kong.worker_events
   worker_events.register(function(session_id)
+    -- Remove the session from the solaceSessions list
+    kong.solaceSessions[session_id] = nil
+    kong.log.err("SESSION REMOVED")
+
+    -- wait one second before destroying the session to handle current requests
+    -- could use a worker event solClient_session_disconnect in future
+    ngx.sleep(1)
+
     local _, err = solaceLib.solClient_session_destroy(kong.solaceSessions[session_id])
     if err then
       kong.log.err("Issue when cleaning session ", session_id, ", error: ", err)
     end
     kong.log.err("SESSION DESTROYED")
-    
-    kong.solaceSessions[session_id] = nil
-    kong.log.err("SESSION REMOVED")
   end, "solaceFunction", "delete")
   
   -- Pass the necessary properties to create context
@@ -83,16 +89,33 @@ function plugin:init_worker()
 end
 
 -- Runs in the 'access' phase
-function plugin:configure()
+function plugin:configure(configs)
   if not sdk_initialized then
     return
   end
+
+  local CONFIG = configs and configs[1] or nil
+
+  -- to be changed with sessions config object
+  local session_configs = CONFIG.log_scope
+  local session_hash = ngx.md5(session_configs)
+
+  if session_hash == previous_session_hash then
+    return
+  end
+  previous_session_hash = session_hash
 
   -- Clean up the Solace sessions
   for session_id, session_p in pairs(kong.solaceSessions) do
     -- Spawn a new thread to clean up the session
     ngx.thread.spawn(function()
-      ngx.sleep(1) -- wait one second before destroying the session
+      -- Remove the session from the solaceSessions list
+      kong.solaceSessions[session_id] = nil
+      kong.log.err("SESSION REMOVED")
+
+      -- wait one second before destroying the session to handle current requests
+      -- could use a worker event solClient_session_disconnect in future
+      ngx.sleep(1)
       
       -- Destroy the session
       local _, err = solaceLib.solClient_session_destroy(session_p)
@@ -101,11 +124,37 @@ function plugin:configure()
       end
 
       kong.log.err("SESSION DESTROYED")
-
-      -- Remove the session from the solaceSessions list
-      kong.solaceSessions[session_id] = nil
-      kong.log.err("SESSION REMOVED")
     end)
+  end
+
+  local max_init_pool = 2
+
+  -- Should we create a real session and lock process
+  for i = 1, max_init_pool do
+    kong.log.err("SESSION CREATION")
+    local session_new, err = solaceLib.createSession(kong.solaceContext)
+    if err then
+      kong.log.err("SESSION CREATION FAILED")
+    end
+
+    kong.log.err("SESSION CONNECTION")
+    -- Connect to the session
+    local ok, err = solaceLib.connectSession(session_new)
+    if err then
+      -- Destroy the session directly as no need to wait
+      local _, err = solaceLib.solClient_session_destroy(session_new)
+      if err then
+        kong.log.err("Issue when cleaning session ", i, ", error: ", err)
+      end
+
+      kong.log.err("SESSION CONNECTION FAILED")
+      return
+    end
+
+    kong.log.err("SESSION CONNECTED TO SOLACE NEW")
+
+    local session_id = ngx.md5(tostring(session_new[0]))
+    kong.solaceSessions[session_id] = session_new
   end
 
 end

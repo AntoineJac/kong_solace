@@ -65,7 +65,7 @@ ffi.cdef[[
       const char* dest;
     } solClient_destination_t;
     
-    int solClient_initialize(int logLevel, const char *logFile);
+    int solClient_initialize(int logLevel, const char **props);
     int solClient_context_create(char **props, solClient_opaqueContext_pt *context_p, 
                                  solClient_context_createFuncInfo_t *funcInfo_p, size_t contextFuncInfoSize);
     int solClient_session_create(char **sessionProps, solClient_opaqueContext_pt context_p, 
@@ -99,7 +99,8 @@ end
 
 -- Initialize the Solace API
 function solaceLib.initialize()
-  local sdk_log_level = 0
+  local sdk_log_level = 0 -- default for initialization could be configured in config
+  -- we keep the default global configuration properties
   local rc = SolaceKongLib.solClient_initialize(sdk_log_level, nil)
   if rc ~= 0 then
     return nil, "issue when initlalizing the lib, code: " .. rc
@@ -111,7 +112,7 @@ end
 -- Edit the Solace SDK Log level
 function solaceLib.solClient_log_setFilterLevel(sdk_log_level)
   local sdk_log_level = sdk_log_level or 0
-   -- only allow log level change and keep log for all categories
+   -- only allow log level change and keep logging for all categories
   local rc = SolaceKongLib.solClient_log_setFilterLevel(0, sdk_log_level)
   if rc ~= 0 then
     return nil, "issue when changing the lib log level, code: " .. rc
@@ -129,7 +130,7 @@ end
 
 -- Define a session event callback function
 local function sessionEventCallback(session_p, eventInfo_p, user_p)
-  -- do not use kong.log as not in same thread
+  -- use print as kong.log not ready for initialization event
   print("SessionEventCallback")
 
   if eventInfo_p and eventInfo_p ~= ffi.NULL then
@@ -145,7 +146,7 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
     end
 
     if sessionEvent == 0 then
-      -- we use a blocking connection so no need to use up event
+      -- we use a blocking connection so no need to use the up event
     end
 
     if sessionEvent == 1 then

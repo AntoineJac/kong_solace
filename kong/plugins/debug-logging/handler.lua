@@ -118,7 +118,7 @@ function plugin:configure(configs)
 
     kong.log.err("SESSION CONNECTION")
     -- Connect to the session
-    local ok, err = solaceLib.connectSession(session_new)
+    local _, err = solaceLib.connectSession(session_new)
     if err then
       -- Destroy the session directly as no need to wait
       local _, err = solaceLib.solClient_session_destroy(session_new)
@@ -159,7 +159,7 @@ function plugin:access(plugin_conf)
 
     kong.log.err("SESSION CONNECTION")
     -- Connect to the session
-    local ok, err = solaceLib.connectSession(session_new)
+    local _, err = solaceLib.connectSession(session_new)
     if err then
       -- Destroy the session directly as no need to wait
       local _, err = solaceLib.solClient_session_destroy(session_new)
@@ -196,9 +196,9 @@ function plugin:access(plugin_conf)
     kong.response.exit(500, "Issue when sending the message with err: " .. err)
   end
 
-  -- if deliveryMode == direct then
-  --   kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
-  -- end
+  if plugin_conf.message_delivery_mode == "DIRECT" then
+    kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
+  end
 
   local start_time = math.floor(ngx.now() * 1000)
   local max_wait_time = plugin_conf.ack_max_wait_time_ms

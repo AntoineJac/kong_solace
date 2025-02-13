@@ -108,9 +108,11 @@ function plugin:configure(configs)
 
   local session_pool = CONFIG.solace_session_pool
 
-  -- Should we create a real session and lock process
+  
+  -- Create sessions to match require session pool
   for i = 1, session_pool do
     kong.log.err("SESSION CREATION")
+    -- create session is blocking so no need to use a lock
     local session_new, err = solaceLib.createSession(kong.solaceContext, CONFIG)
     if err then
       kong.log.err("SESSION CREATION FAILED")
@@ -152,6 +154,7 @@ function plugin:access(plugin_conf)
   -- Create sessions to match require session pool
   if nkeys(kong.solaceSessions) < session_pool then
     kong.log.err("SESSION CREATION")
+    -- create session is blocking so no need to use a lock
     local session_new, err = solaceLib.createSession(kong.solaceContext, plugin_conf)
     if err then
       kong.response.exit(500, "Issue when creating the session with err: " .. err)
@@ -185,6 +188,8 @@ function plugin:access(plugin_conf)
     kong.response.exit(500, "No session available")
   end
 
+  -- we use a random selector for the sessions
+  -- The Solace SDK handle message buffering and queue sending, no lock logic require
   local random_index = math.random(#connected_sessions)
   local selected_session = connected_sessions[random_index]
   kong.log.err("PICKED SESSION ", random_index)

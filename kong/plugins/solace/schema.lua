@@ -14,7 +14,7 @@ local list_properties_forbidden = {
   "SESSION_SEND_BLOCKING",
 }
 
-local PLUGIN_NAME = "debug-logging"
+local PLUGIN_NAME = "solace"
 
 
 local function is_empty(value)

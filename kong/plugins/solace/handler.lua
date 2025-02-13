@@ -3,7 +3,7 @@ local plugin = {
   VERSION = "0.1", -- Plugin version in X.Y.Z format
 }
 
-local solaceLib = require("kong.plugins.debug-logging.solaceLib")
+local solaceLib = require("kong.plugins.solace.solaceLib")
 local nkeys     = require "table.nkeys"
 local cjson     = require "cjson"
 local sdk_initialized = false

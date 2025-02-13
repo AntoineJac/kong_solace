@@ -5,8 +5,10 @@ local plugin = {
 
 local solaceLib = require("kong.plugins.debug-logging.solaceLib")
 local nkeys     = require "table.nkeys"
+local cjson     = require "cjson"
 local sdk_initialized = false
-local previous_session_hash, previous_sdk_log_level
+local previous_sdk_log_level = 0
+local previous_session_hash
 kong.solaceSessions = {}
 kong.solaceContext = nil
 
@@ -29,7 +31,7 @@ function plugin:init_worker()
   end
 
   kong.worker_events.register(function(session_id)
-    -- Remove the session from the solaceSessions list
+    -- Remove the session from the solaceSessions list first to avoid any new connection
     kong.solaceSessions[session_id] = nil
     kong.log.err("SESSION REMOVED")
 
@@ -65,18 +67,11 @@ function plugin:configure(configs)
 
   local CONFIG = configs and configs[1] or nil
 
-  -- to be changed with sessions config object
-  local session_configs = CONFIG.log_scope
-  local session_hash = ngx.md5(session_configs)
-
-  if session_hash == previous_session_hash then
-    return
-  end
-  previous_session_hash = session_hash
-
   -- check if require changing log level
   local sdk_log_level = CONFIG.solace_sdk_log_level
   if sdk_log_level ~= previous_sdk_log_level then
+    kong.log.err("LOG LEVEL CHANGED, previous: ", previous_sdk_log_level, " ,new: ", sdk_log_level)
+
     local _, err = solaceLib.solClient_log_setFilterLevel(sdk_log_level)
     if err then
       kong.log.err("Issue when changing the log level, error: ", err)
@@ -84,11 +79,33 @@ function plugin:configure(configs)
     previous_sdk_log_level = sdk_log_level
   end
 
+  -- clean sessions only if session fields changed
+  local session_configs = {
+    solace_sessions_properties = CONFIG.solace_sessions_properties,
+    session_authentication_scheme = CONFIG.session_authentication_scheme,
+    session_oauth2_access_token = CONFIG.session_oauth2_access_token,
+    session_oidc_id_token = CONFIG.session_oidc_id_token,
+    session_username = CONFIG.session_username,
+    session_password = CONFIG.session_password,
+    session_vpn_name = CONFIG.session_vpn_name,
+    session_host = CONFIG.session_host,
+    session_connect_timeout_ms = CONFIG.session_connect_timeout_ms,
+    session_write_timeout_ms = CONFIG.session_write_timeout_ms
+  }
+
+  session_configs = cjson.encode(session_configs)
+  local session_hash = ngx.md5(session_configs)
+
+  if session_hash == previous_session_hash then
+    return
+  end
+  previous_session_hash = session_hash
+
   -- Clean up the Solace sessions
   for session_id, session_p in pairs(kong.solaceSessions) do
     -- Spawn a new thread to clean up the session
     ngx.thread.spawn(function()
-      -- Remove the session from the solaceSessions list
+      -- Remove the session from the solaceSessions list first to avoid any new connection
       kong.solaceSessions[session_id] = nil
       kong.log.err("SESSION REMOVED")
 
@@ -107,8 +124,6 @@ function plugin:configure(configs)
   end
 
   local session_pool = CONFIG.solace_session_pool
-
-  
   -- Create sessions to match require session pool
   for i = 1, session_pool do
     kong.log.err("SESSION CREATION")
@@ -137,7 +152,6 @@ function plugin:configure(configs)
     local session_id = ngx.md5(tostring(session_new[0]))
     kong.solaceSessions[session_id] = session_new
   end
-
 end
 
 -- Runs in the 'access' phase
@@ -147,10 +161,9 @@ function plugin:access(plugin_conf)
   end
 
   kong.ctx.shared.ack_received = false
-  local session_pool = plugin_conf.solace_session_pool
-
   kong.log.err("NUMBER OF SESSION ", nkeys(kong.solaceSessions))
 
+  local session_pool = plugin_conf.solace_session_pool
   -- Create sessions to match require session pool
   if nkeys(kong.solaceSessions) < session_pool then
     kong.log.err("SESSION CREATION")
@@ -197,7 +210,6 @@ function plugin:access(plugin_conf)
   -- Pass the necessary properties and send the message
   local _, err = solaceLib.sendMessage(selected_session, plugin_conf)
   if err then
-    solaceLib.solClient_msg_free() -- free malloc
     kong.response.exit(500, "Issue when sending the message with err: " .. err)
   end
 

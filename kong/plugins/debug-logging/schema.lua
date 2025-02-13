@@ -54,6 +54,16 @@ local function validate_config(config)
     if is_empty(config.session_oauth2_access_token) and is_empty(config.session_oidc_id_token) then
       return false, "for oauth2: one of session_oauth2_access_token or session_oidc_id_token should be provided"
     end
+
+    if config.session_oauth2_access_token and config.session_oidc_id_token then
+      return false, "only provide a unique session_oauth2_access_token or session_oidc_id_token"
+    end
+  end
+
+  if config.message_content_type == "CUSTOM" then
+    if is_empty(config.message_content_override) then
+      return false, "content is mandatory for CUSTOM message content type"
+    end
   end
 
   return true
@@ -143,6 +153,12 @@ local schema = {
             },
           },
           {
+            session_host = typedefs.url({
+              required = true,
+              referenceable = true
+            })
+          },
+          {
             session_connect_timeout_ms = {
               type = "integer",
               required = true,
@@ -159,7 +175,7 @@ local schema = {
             },
           },
           {
-            increase_session_max_pool = {
+            solace_session_pool = {
               type = "integer",
               required = true,
               between = { 0, 10 },
@@ -206,11 +222,19 @@ local schema = {
             },
           },
           {
-            ack_max_wait_time = {
+            ack_max_wait_time_ms = {
               type = "integer",
               required = true,
               default = 2000,
               between = { 100, 5000 },
+            },
+          },
+          {
+            solace_sdk_log_level = {
+              type = "integer",
+              required = true,
+              default = 0,
+              between = { 0, 7 },
             },
           },
         },

@@ -81,9 +81,10 @@ ffi.cdef[[
     int solClient_msg_alloc(solClient_opaqueMsg_pt *msg_p);
     int solClient_msg_free(solClient_opaqueMsg_pt *msg_p);
     int solClient_session_destroy (solClient_opaqueSession_pt * session_p);
+    int solClient_log_setFilterLevel (int category, int level);
 ]]
 
-    
+
 -- Function to load Solace shared library
 function solaceLib.loadSolaceLibrary()
   local loaded, err = pcall(ffi.load, libsolaceName)
@@ -102,6 +103,18 @@ function solaceLib.initialize()
   local rc = SolaceKongLib.solClient_initialize(sdk_log_level, nil)
   if rc ~= 0 then
     return nil, "issue when initlalizing the lib, code: " .. rc
+  end
+
+  return true
+end
+
+-- Edit the Solace SDK Log level
+function solaceLib.solClient_log_setFilterLevel(sdk_log_level)
+  local sdk_log_level = sdk_log_level or 0
+   -- only allow log level change and keep log for all categories
+  local rc = SolaceKongLib.solClient_log_setFilterLevel(0, sdk_log_level)
+  if rc ~= 0 then
+    return nil, "issue when changing the lib log level, code: " .. rc
   end
 
   return true
@@ -189,39 +202,87 @@ function solaceLib.createContext()
 end
 
 -- Create a session context
-function solaceLib.createSession(context_p)
+function solaceLib.createSession(context_p, config)
 
   -- Create session
   local session_p = ffi.new("solClient_opaqueSession_pt[1]")
   local sessionFuncInfo = ffi.new("solClient_session_createFuncInfo_t")
 
+  -- Get max session properties + add 2 for the first and last nil bytes
+  local number_session_properties = (#config.solace_sessions_properties * 2) + (9 * 2) + 2
+
   -- Create session properties
-  local sessionProps = ffi.new("char*[20]")
+  local sessionProps = ffi.new("char*[" .. number_session_properties .. "]")
   
-  -- Set each property to point to a C string
+  -- Initialize first nil byte
   sessionProps[0] = ffi.cast("char*", nil)
-  sessionProps[0] = ffi.cast("char*", "SESSION_HOST")
-  sessionProps[1] = ffi.cast("char*", "tcp://host.docker.internal:55554")
-  sessionProps[2] = ffi.cast("char*", "SESSION_VPN_NAME")
-  sessionProps[3] = ffi.cast("char*", "default")
-  sessionProps[4] = ffi.cast("char*", "SESSION_USERNAME")
-  sessionProps[5] = ffi.cast("char*", "admin")
-  sessionProps[6] = ffi.cast("char*", "SESSION_PASSWORD")
-  sessionProps[7] = ffi.cast("char*", "admin")
-  sessionProps[8] = ffi.cast("char*", "SESSION_CONNECT_TIMEOUT_MS")
-  sessionProps[9] = ffi.cast("char*", "3000")
 
-  sessionProps[10] = ffi.cast("char*", "SESSION_CONNECT_BLOCKING")
-  sessionProps[11] = ffi.cast("char*", "1")
+  -- Default session properties
+  sessionProps[1] = ffi.cast("char*", "SESSION_HOST")
+  sessionProps[2] = ffi.cast("char*", config.session_host)
 
-  sessionProps[12] = ffi.cast("char*", "SESSION_WRITE_TIMEOUT_MS")
-  sessionProps[13] = ffi.cast("char*", "5000")
+  sessionProps[3] = ffi.cast("char*", "SESSION_CONNECT_BLOCKING")
+  sessionProps[4] = ffi.cast("char*", "1")
 
-  -- sessionProps[12] = ffi.cast("char*", "SESSION_KEEP_ALIVE_INTERVAL_MS")
-  -- sessionProps[13] = ffi.cast("char*", "0")
+  sessionProps[5] = ffi.cast("char*", "SESSION_CONNECT_TIMEOUT_MS")
+  sessionProps[6] = ffi.cast("char*", config.session_connect_timeout_ms)
 
-  sessionProps[8] = ffi.cast("char*", nil)
+  sessionProps[7] = ffi.cast("char*", "SESSION_SEND_BLOCKING")
+  sessionProps[8] = ffi.cast("char*", "1")
 
+  sessionProps[9] = ffi.cast("char*", "SESSION_WRITE_TIMEOUT_MS")
+  sessionProps[10] = ffi.cast("char*", config.session_write_timeout_ms)
+
+  -- Start with position 11 for optional properties
+  local position = 11
+
+  -- Add optional session properties
+  if config.session_vpn_name then
+    sessionProps[position] = ffi.cast("char*", "SESSION_VPN_NAME")
+    sessionProps[position + 1] = ffi.cast("char*", config.session_vpn_name)
+    position = position + 2
+end
+
+  if config.session_authentication_scheme ~= "NONE" then
+    sessionProps[position] = ffi.cast("char*", "SESSION_AUTHENTICATION_SCHEME")
+    sessionProps[position + 1] = ffi.cast("char*", config.session_authentication_scheme)
+    position = position + 2
+    
+    if config.session_authentication_scheme == "AUTHENTICATION_SCHEME_BASIC" then  
+      sessionProps[position] = ffi.cast("char*", "SESSION_USERNAME")
+      sessionProps[position + 1] = ffi.cast("char*", config.session_username)
+      position = position + 2
+  
+      sessionProps[position] = ffi.cast("char*", "SESSION_PASSWORD")
+      sessionProps[position + 1] = ffi.cast("char*", config.session_password)
+
+      position = position + 2
+    end
+
+    if config.session_authentication_scheme == "AUTHENTICATION_SCHEME_OAUTH2" then  
+      if config.session_oauth2_access_token then
+        sessionProps[position] = ffi.cast("char*", "SESSION_OAUTH2_ACCESS_TOKEN")
+        sessionProps[position +1] = ffi.cast("char*", config.session_oauth2_access_token)
+        position = position + 2
+      end
+
+      if config.session_oidc_id_token then
+        sessionProps[position] = ffi.cast("char*", "SESSION_OIDC_ID_TOKEN")
+        sessionProps[position +1] = ffi.cast("char*", config.session_oidc_id_token)
+        position = position + 2
+      end
+    end
+  end
+
+  -- Handle additional properties in solace_sessions_properties
+  for i, property in ipairs(config.solace_sessions_properties) do
+    sessionProps[position] = ffi.cast("char*", property.property_key)
+    sessionProps[position + 1] = ffi.cast("char*", property.property_value)
+    position = position + 2
+  end
+
+  -- End with the last nil byte
+  sessionProps[position] = ffi.cast("char*", nil)
 
   -- Assign callbacks or leave as NULL
   sessionFuncInfo.rxMsgInfo.callback_p = sessionMessageReceiveCallback
@@ -246,7 +307,6 @@ end
 
 -- Create a session context
 function solaceLib.connectSession(session_p)
-
   local rc = SolaceKongLib.solClient_session_connect(session_p[0])
   if rc ~= 0 then
     return nil, "Solace connection failed, code: " .. rc
@@ -256,8 +316,7 @@ function solaceLib.connectSession(session_p)
 end
 
 -- Create a session context
-function solaceLib.sendMessage(session_p)
-
+function solaceLib.sendMessage(session_p, config)
   local msg_p = ffi.new("solClient_opaqueMsg_pt[1]")
 
   local rc = SolaceKongLib.solClient_msg_alloc(msg_p)
@@ -265,16 +324,58 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_alloc failed, code: " .. rc
   end
 
-  local delivery_mode = 16 -- Hexa so 0 for Direct and 16 for Persistent
+  local delivery_mode
+  -- Hexa so 0 for Direct, 16 for Persistent and 32 for Non Persistent
+  if config.message_delivery_mode == "DIRECT" then
+    delivery_mode = 0
+  elseif config.message_delivery_mode == "PERSISTENT" then
+    delivery_mode = 16
+  elseif config.message_delivery_mode == "NONPERSISTENT" then
+    delivery_mode = 32
+  else
+    return nil, "invalid delivery mode"
+  end
+  
   rc = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
   if rc ~= 0 then
     return nil, "solClient_msg_setDeliveryMode failed, code: " .. rc
   end
 
   local destination = ffi.new("solClient_destination_t")
-  destination.destType = 0 -- 0 for Topic and 1 for Queue
 
-  local dest = "tutorial/topic" -- Topic or Queue name
+  local destType
+  if config.message_destination_type == "TOPIC" then 
+    destType = 0
+  elseif config.message_destination_type == "QUEUE" then
+    destType = 1
+  else
+    return nil, "invalid destination type"
+  end
+
+  local destTypeCapturesPattern = "%$(uri_captures%[\"(.-)\"%])"
+  -- Check if there are any captures in destType
+  local capture_keys = {}
+  for key in destType:gmatch(destTypeCapturesPattern) do
+    table.insert(capture_keys, key)
+  end
+
+  -- Only proceed if we have any capture keys to replace
+  if #capture_keys > 0 then
+    -- Get the named captures from the URI
+    local captures = kong.request.get_uri_captures()
+
+    -- Replace all occurrences of the named captures in one pass
+    for _, key in ipairs(capture_keys) do
+      -- Check if the key exists in the captures
+      if captures.named[key] then
+        -- Replace all instances of the key with the corresponding capture value
+        destType = destType:gsub(destTypeCapturesPattern:format(key), captures.named[key])
+      end
+    end
+  end
+  destination.destType = destType -- 0 for Topic and 1 for Queue
+
+  local dest = config.message_destination_name -- Topic or Queue name
   destination.dest = ffi.cast("const char*", dest)
 
   -- Set the destination for the message
@@ -288,24 +389,41 @@ function solaceLib.sendMessage(session_p)
     return nil, "solClient_msg_setAckImmediately failed, code: " .. rc
   end
 
-  local text_p = "Hello world!"
-  -- Convert the Lua string to a C-style string
-  local binaryAttachment = ffi.new("char[?]", #text_p, text_p)
+  local message
+  if config.message_content_type == "CUSTOM" then
+    message = config.message_content_override
+  else
+    message = kong.request.get_raw_body()
+  end
 
-  SolaceKongLib.solClient_msg_setBinaryAttachment(msg_p[0], binaryAttachment, #text_p)
+  if not message or message == "" then
+    return nil, "no message available to send"
+  end
+
+  -- Convert the Lua string to a C-style string
+  local binaryAttachment = ffi.new("char[?]", #message, message)
+
+  SolaceKongLib.solClient_msg_setBinaryAttachment(msg_p[0], binaryAttachment, #message)
+  if rc ~= 0 then
+    return nil, "solClient_msg_setBinaryAttachment failed, code: " .. rc
+  end
 
   rc = SolaceKongLib.solClient_session_sendMsg(session_p[0], msg_p[0])
   if rc ~= 0 then
     return nil, "solClient_session_sendMsg failed, code: " .. rc
   end
 
-  rc = SolaceKongLib.solClient_msg_free(msg_p)
-  if rc ~= 0 then
-    return nil, "solClient_msg_free failed, code: " .. rc
-  end
-
+  solaceLib.solClient_msg_free()
   return true
 end
+
+-- Cleanup the Solace API
+function solaceLib.solClient_msg_free()
+  local rc = SolaceKongLib.solClient_cleanup()
+  if rc ~= 0 then
+    kong.log.err("solClient_msg_free failed, code: ", rc)
+  end
+end 
 
 -- Cleanup the Solace API
 function solaceLib.cleanup()

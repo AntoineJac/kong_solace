@@ -68,7 +68,9 @@ curl -X POST http://localhost:8001/services/{service}/plugins \
 
 ## Example Request
 
-Once the plugin is enabled, sending a request to the configured Kong route will push a message to Solace:
+Follow the Solace documentation to run a Solace broker in Docker: https://solace.com/products/event-broker/software/getting-started/
+
+Once done and the plugin enabled in Kong, sending a request to the configured Kong route will push a message to Solace:
 
 ```shell
 curl -X POST http://localhost:8000/send-message \

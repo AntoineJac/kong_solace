@@ -59,12 +59,24 @@ curl -X POST http://localhost:8001/services/{service}/plugins \
 | `solace_session_pool`           | Integer | `2`                           | ✅        | Number of sessions in the pool (0-10).                                                         |
 | `message_delivery_mode`         | String  | `DIRECT`                      | ✅        | Delivery mode (`DIRECT`, `PERSISTENT`, `NONPERSISTENT`).                                       |
 | `message_destination_type`      | String  | `TOPIC`                       | ✅        | Destination type (`TOPIC` or `QUEUE`).                                                         |
-| `message_destination_name`      | String  | `tutorial/topic`              | ✅        | Topic or queue name where messages will be sent.                                               |
+| `message_destination_name`      | String  | `tutorial/topic`              | ✅        | Topic or queue name where messages will be sent, uri_capture can be used.                           |
 | `message_content_type`          | String  | `PAYLOAD`                     | ✅        | Message content type (`PAYLOAD`, `CUSTOM`).                                                    |
 | `message_content_override`      | String  | `Hello World!`                | ❌        | Custom message content (if `CUSTOM` is selected).                                              |
 | `ack_max_wait_time_ms`          | Integer | `2000`                        | ✅        | Maximum wait time for acknowledgment (ms).                                                     |
 | `solace_sdk_log_level`          | Integer | `0`                           | ✅        | Logging level (0-7).                                                                           |
 | `kong/plugins/solace/schema.lua`| Array   | -                             | ✅        | Solace Sessions confiuration, each property has a name and a value.                                                    |
+
+
+## URI Capture
+You can use the `uri_capture` property to capture the URI of the request and use it as the message destination name.
+
+For instance if you have a route like this: `~/demo/(?<topic_id_1>\w+)/hello/(?<topic_id_2>\w+)`
+
+You can use the following configuration: `message_destination_name=/topic/$(uri_captures['topic_id_1']/test/$(uri_captures['topic_id_2']`
+If not matching, it will remove the placeholder and the `/`, so the final destination will be `/topic/test`
+
+**please use single quotes and not double quotes**: ```$(uri_captures['topic_id_1']``` is correct and ```$(uri_captures["topic_id_1"]``` is incorrect.
+
 
 ## Example Request
 

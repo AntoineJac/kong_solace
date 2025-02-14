@@ -161,8 +161,9 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
     kong.worker_events.post_local("solaceFunction", "delete", session_id)
   end
 
-  -- print("Session event: ", sessionEvent)
-  -- print("Response Code: ", eventInfo_p.responseCode[0])
+  print("Session event: ", sessionEvent)
+  print("Response Code: ", eventInfo_p.responseCode[0])
+  return nil
 end
 
 

@@ -12,6 +12,7 @@ local list_properties_forbidden = {
   "SESSION_WRITE_TIMEOUT_MS",
   "SESSION_CONNECT_BLOCKING",
   "SESSION_SEND_BLOCKING",
+  "SESSION_ACK_EVENT_MODE"
 }
 
 local PLUGIN_NAME = "solace"

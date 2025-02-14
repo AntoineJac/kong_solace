@@ -4,6 +4,7 @@ local plugin = {
 }
 
 local solaceLib = require("kong.plugins.solace.solaceLib")
+local uuid      = require "kong.tools.uuid"
 local nkeys     = require "table.nkeys"
 local cjson     = require "cjson"
 local sdk_initialized = false
@@ -11,6 +12,7 @@ local previous_sdk_log_level = 0
 local previous_session_hash
 kong.solaceSessions = {}
 kong.solaceContext = nil
+kong.solace_ack_received = {}
 
 local isLoaded, err = solaceLib.loadSolaceLibrary()
 if err then
@@ -90,7 +92,8 @@ function plugin:configure(configs)
     session_vpn_name = CONFIG.session_vpn_name,
     session_host = CONFIG.session_host,
     session_connect_timeout_ms = CONFIG.session_connect_timeout_ms,
-    session_write_timeout_ms = CONFIG.session_write_timeout_ms
+    session_write_timeout_ms = CONFIG.session_write_timeout_ms,
+    solace_session_pool = CONFIG.solace_session_pool
   }
 
   session_configs = cjson.encode(session_configs)
@@ -160,7 +163,6 @@ function plugin:access(plugin_conf)
     return
   end
 
-  kong.ctx.shared.ack_received = false
   kong.log.err("NUMBER OF SESSION ", nkeys(kong.solaceSessions))
 
   local session_pool = plugin_conf.solace_session_pool
@@ -207,8 +209,11 @@ function plugin:access(plugin_conf)
   local selected_session = connected_sessions[random_index]
   kong.log.err("PICKED SESSION ", random_index)
 
+  -- Create message id
+  local message_id = uuid.uuid()
+
   -- Pass the necessary properties and send the message
-  local _, err = solaceLib.sendMessage(selected_session, plugin_conf)
+  local _, err = solaceLib.sendMessage(selected_session, plugin_conf, message_id)
   if err then
     kong.response.exit(500, "Issue when sending the message with err: " .. err)
   end
@@ -221,12 +226,16 @@ function plugin:access(plugin_conf)
   local max_wait_time = plugin_conf.ack_max_wait_time_ms
 
   while (math.floor(ngx.now() * 1000) - start_time) < max_wait_time do
-    if kong.ctx.shared.ack_received == true then
+    if kong.solace_ack_received[message_id] == true then
+        kong.solace_ack_received[message_id] = nil
         kong.response.exit(200, "Message has been sent to Solace")
     end
 
     ngx.sleep(0.1)  -- Sleep for 0.1s to avoid CPU overload
   end
+
+  -- remove the message to avoid memory leak
+  kong.solace_ack_received[message_id] = nil
   
   kong.response.exit(500, "Message no sent within the send window")
 end

@@ -82,6 +82,8 @@ ffi.cdef[[
     int solClient_msg_free(solClient_opaqueMsg_pt *msg_p);
     int solClient_session_destroy (solClient_opaqueSession_pt * session_p);
     int solClient_log_setFilterLevel (int category, int level);
+
+    int solClient_msg_setCorrelationTag(solClient_opaqueMsg_pt msg_p, void *correlation_p, size_t correlationSize);
 ]]
 
 
@@ -141,7 +143,11 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
 
   -- Handle specific session events
   if sessionEvent == 6 then
-    kong.ctx.shared.ack_received = true
+    local info_p = eventInfo_p.info_p
+    if info_p ~= ffi.NULL then
+      local info_str = ffi.string(info_p)
+      kong.solace_ack_received[info_str] = true
+    end
   end
 
   if sessionEvent == 0 then
@@ -207,7 +213,8 @@ function solaceLib.createSession(context_p, config)
   local sessionFuncInfo = ffi.new("solClient_session_createFuncInfo_t")
 
   -- Get max session properties + add 1 for the last nil bytes
-  local number_session_properties = (#config.solace_sessions_properties * 2) + (9 * 2) + 1
+  local number_session_properties = #config.solace_sessions_properties or 0
+  number_session_properties = ((number_session_properties + 9) * 2) + 1
 
   -- Create session properties
   local sessionProps = ffi.new("char*[" .. number_session_properties .. "]")
@@ -311,7 +318,7 @@ function solaceLib.connectSession(session_p)
 end
 
 -- Create a session context
-function solaceLib.sendMessage(session_p, config)
+function solaceLib.sendMessage(session_p, config, message_id)
   local msg_p = ffi.new("solClient_opaqueMsg_pt[1]")
 
   local rc = SolaceKongLib.solClient_msg_alloc(msg_p)
@@ -374,6 +381,17 @@ function solaceLib.sendMessage(session_p, config)
     solaceLib.solClient_msg_free(msg_p)
     return nil, "solClient_msg_setBinaryAttachment failed, code: " .. rc
   end
+
+  -- Convert correlation_id to a string buffer
+  local correlation_size = #message_id + 1  -- Include null terminator if needed
+  local correlation_p = ffi.new("char[?]", correlation_size, message_id)
+  
+  -- Set the correlation tag in the Solace message
+  local rc = SolaceKongLib.solClient_msg_setCorrelationTag(msg_p[0], correlation_p, correlation_size)
+  if rc ~= 0 then
+      kong.log.err("solClient_msg_setCorrelationTag failed, code: ", rc)
+  end
+  
 
   -- Send Message
   rc = SolaceKongLib.solClient_session_sendMsg(session_p[0], msg_p[0])

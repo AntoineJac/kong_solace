@@ -218,11 +218,15 @@ function plugin:access(plugin_conf)
     kong.response.exit(500, "Issue when sending the message with err: " .. err)
   end
 
+  -- important to collect garbage here to avoid memory leak
+  collectgarbage()
+
   if plugin_conf.message_delivery_mode == "DIRECT" then
     kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
   end
 
   -- PERSISTENT mode is still generating VM crash due to callback thread
+  -- Maybe we need to use our own thread to handle Solace context
 
   local start_time = math.floor(ngx.now() * 1000)
   local max_wait_time = plugin_conf.ack_max_wait_time_ms

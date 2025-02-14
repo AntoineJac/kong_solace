@@ -380,7 +380,7 @@ function solaceLib.sendMessage(session_p, config, correlation_id)
 
   kong.log.debug("MESSAGE SET CORRELATION TAG")
   -- Convert correlation_id to a string buffer
-  local correlation_p = ffi.new("char[?]", #correlation_id, correlation_id)
+  local correlation_p = ffi.new("char[?]", #correlation_id + 1, correlation_id) -- +1 for null terminator
   -- Set the correlation tag in the Solace message
   rc = SolaceKongLib.solClient_msg_setCorrelationTag(msg_p[0], correlation_p, ffi.sizeof(correlation_p))
   if rc ~= 0 then
@@ -391,7 +391,7 @@ function solaceLib.sendMessage(session_p, config, correlation_id)
   local message = (config.message_content_type == "CUSTOM") and config.message_content_override or kong.request.get_raw_body()
 
   kong.log.debug("MESSAGE SET BINARY")
-  local binaryAttachment = ffi.new("char[?]", #message, message)
+  local binaryAttachment = ffi.new("char[?]", #message + 1, message) -- +1 for null terminator
   -- Set the binary attachment 
   SolaceKongLib.solClient_msg_setBinaryAttachment(msg_p[0], binaryAttachment, ffi.sizeof(binaryAttachment))
   if rc ~= 0 then

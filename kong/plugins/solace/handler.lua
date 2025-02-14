@@ -172,7 +172,7 @@ function plugin:access(plugin_conf)
     -- create session is blocking so no need to use a lock
     local session_new, err = solaceLib.createSession(kong.solaceContext, plugin_conf)
     if err then
-      kong.response.exit(500, "Issue when creating the session with err: " .. err)
+      kong.response.exit(501, "Issue when creating the session with err: " .. err)
     end
 
     kong.log.debug("SESSION CONNECTION")
@@ -185,7 +185,7 @@ function plugin:access(plugin_conf)
         kong.log.err("Issue when cleaning session ", i, ", error: ", err)
       end
 
-      kong.response.exit(500, "Issue when connecting the sessions")
+      kong.response.exit(502, "Issue when connecting the sessions")
     end
 
     kong.log.debug("SESSION CONNECTED TO SOLACE")
@@ -200,7 +200,7 @@ function plugin:access(plugin_conf)
   end
 
   if #connected_sessions == 0 then
-    kong.response.exit(500, "No session available")
+    kong.response.exit(503, "No session available")
   end
 
   -- we use a random selector for the sessions
@@ -211,11 +211,12 @@ function plugin:access(plugin_conf)
 
   -- Create message id for ack event receipt
   local message_id = uuid.uuid()
+  kong.solace_ack_received[message_id] = false
 
   -- Pass the necessary properties and send the message
   local _, err = solaceLib.sendMessage(selected_session, plugin_conf, message_id)
   if err then
-    kong.response.exit(500, "Issue when sending the message with err: " .. err)
+    kong.response.exit(504, "Issue when sending the message with err: " .. err)
   end
 
   -- important to collect garbage here to avoid memory leak
@@ -225,25 +226,29 @@ function plugin:access(plugin_conf)
     kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
   end
 
-  -- PERSISTENT mode is still generating VM crash due to callback thread
-  -- Maybe we need to use our own thread to handle Solace context
-
+  -- We use a loop as we need to empty solace_ack_received[message_id]
+  -- While loop cause the solace_ack_received to be cleaned prematurely 
   local start_time = math.floor(ngx.now() * 1000)
   local max_wait_time = plugin_conf.ack_max_wait_time_ms
+  local sleep_time = 100 --ms
+  local max_iterations = math.floor(max_wait_time / sleep_time)
 
-  while (math.floor(ngx.now() * 1000) - start_time) < max_wait_time do
+  -- We use a loop as while is not blocking and we need to empty solace_ack_received[message_id]
+  for i = 1, max_iterations do
     if kong.solace_ack_received[message_id] == true then
-        kong.solace_ack_received[message_id] = nil
-        kong.response.exit(200, "Message has been sent to Solace")
+      kong.solace_ack_received[message_id] = nil
+      kong.response.exit(200, "Message has been sent to Solace 4")
     end
-
-    ngx.sleep(0.1)  -- Sleep for 0.1s to avoid CPU overload
-  end
-
-  -- remove the message to avoid memory leak
-  kong.solace_ack_received[message_id] = nil
   
-  kong.response.exit(500, "No callback received within the send window")
+    -- Check if it is the last iteration
+    if i == max_iterations then
+      kong.solace_ack_received[message_id] = nil
+    end
+  
+    ngx.sleep(sleep_time/1000)  -- Sleep for 0.1s to avoid CPU overload
+  end
+  
+  kong.response.exit(505, "No callback received within the send window")
 end
 
 -- Runs in the 'access' phase

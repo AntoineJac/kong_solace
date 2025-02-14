@@ -72,8 +72,8 @@ You can use the `uri_capture` property to capture the URI of the request and use
 
 For instance if you have a route like this: `~/demo/(?<topic_id_1>\w+)/hello/(?<topic_id_2>\w+)`
 
-You can use the following configuration: `message_destination_name=/topic/$(uri_captures['topic_id_1']/test/$(uri_captures['topic_id_2']`
-If not matching, it will remove the placeholder and the `/`, so the final destination will be `/topic/test`
+You can use the following configuration: `message_destination_name=/topic/$(uri_captures['topic_id_1'])/test/$(uri_captures['topic_id_2'])`
+If not matching, it will remove the placeholder and the `/`, so the final destination will be `/topic/test/`
 
 **please use single quotes and not double quotes**: ```$(uri_captures['topic_id_1']``` is correct and ```$(uri_captures["topic_id_1"]``` is incorrect.
 

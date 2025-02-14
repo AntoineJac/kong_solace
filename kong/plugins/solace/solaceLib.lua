@@ -364,6 +364,7 @@ function solaceLib.sendMessage(session_p, config, correlation_id)
   -- Ensure no double slashes are left
   dest = dest:gsub("//", "/")
   destination.dest = ffi.cast("const char*", dest)
+  kong.log.err("ANTOINE dest ", dest)
 
   kong.log.debug("MESSAGE SET DESTINATION")
   rc = SolaceKongLib.solClient_msg_setDestination(msg_p[0], destination, ffi.sizeof(destination))

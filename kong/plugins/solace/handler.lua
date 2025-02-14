@@ -35,7 +35,7 @@ function plugin:init_worker()
   kong.worker_events.register(function(session_id)
     -- Remove the session from the solaceSessions list first to avoid any new connection
     kong.solaceSessions[session_id] = nil
-    kong.log.err("SESSION REMOVED")
+    kong.log.debug("SESSION REMOVED")
 
     -- wait one second before destroying the session to handle current requests
     -- could use a worker event solClient_session_disconnect in future
@@ -45,13 +45,13 @@ function plugin:init_worker()
     if err then
       kong.log.err("Issue when cleaning session ", session_id, ", error: ", err)
     end
-    kong.log.err("SESSION DESTROYED")
+    kong.log.debug("SESSION DESTROYED")
   end, "solaceFunction", "delete")
   
   -- Pass the necessary properties to create context
   -- One context for all workers - maybe one by worker in future
   if not kong.solaceContext then
-    kong.log.err("CONTEXT CREATED")
+    kong.log.debug("CONTEXT CREATED")
     kong.solaceContext, err = solaceLib.createContext()
     if err then
       return "issue when creating context, code: " .. err
@@ -72,7 +72,7 @@ function plugin:configure(configs)
   -- check if require changing log level
   local sdk_log_level = CONFIG.solace_sdk_log_level
   if sdk_log_level ~= previous_sdk_log_level then
-    kong.log.err("LOG LEVEL CHANGED, previous: ", previous_sdk_log_level, " ,new: ", sdk_log_level)
+    kong.log.debug("LOG LEVEL CHANGED, previous: ", previous_sdk_log_level, " ,new: ", sdk_log_level)
 
     local _, err = solaceLib.solClient_log_setFilterLevel(sdk_log_level)
     if err then
@@ -110,7 +110,7 @@ function plugin:configure(configs)
     ngx.thread.spawn(function()
       -- Remove the session from the solaceSessions list first to avoid any new connection
       kong.solaceSessions[session_id] = nil
-      kong.log.err("SESSION REMOVED")
+      kong.log.debug("SESSION REMOVED")
 
       -- wait one second before destroying the session to handle current requests
       -- could use a worker event solClient_session_disconnect in future
@@ -122,21 +122,21 @@ function plugin:configure(configs)
         kong.log.err("Issue when cleaning session ", session_id, ", error: ", err)
       end
 
-      kong.log.err("SESSION DESTROYED")
+      kong.log.debug("SESSION DESTROYED")
     end)
   end
 
   local session_pool = CONFIG.solace_session_pool
   -- Create sessions to match require session pool
   for i = 1, session_pool do
-    kong.log.err("SESSION CREATION")
+    kong.log.debug("SESSION CREATION")
     -- create session is blocking so no need to use a lock
     local session_new, err = solaceLib.createSession(kong.solaceContext, CONFIG)
     if err then
       kong.log.err("SESSION CREATION FAILED")
     end
 
-    kong.log.err("SESSION CONNECTION")
+    kong.log.debug("SESSION CONNECTION")
     -- Connect to the session
     local _, err = solaceLib.connectSession(session_new)
     if err then
@@ -150,7 +150,7 @@ function plugin:configure(configs)
       return
     end
 
-    kong.log.err("SESSION CONNECTED TO SOLACE NEW")
+    kong.log.debug("SESSION CONNECTED TO SOLACE NEW")
 
     local session_id = ngx.md5(tostring(session_new[0]))
     kong.solaceSessions[session_id] = session_new
@@ -163,19 +163,19 @@ function plugin:access(plugin_conf)
     return
   end
 
-  kong.log.err("NUMBER OF SESSION ", nkeys(kong.solaceSessions))
+  kong.log.debug("NUMBER OF SESSION ", nkeys(kong.solaceSessions))
 
   local session_pool = plugin_conf.solace_session_pool
   -- Create sessions to match require session pool
   if nkeys(kong.solaceSessions) < session_pool then
-    kong.log.err("SESSION CREATION")
+    kong.log.debug("SESSION CREATION")
     -- create session is blocking so no need to use a lock
     local session_new, err = solaceLib.createSession(kong.solaceContext, plugin_conf)
     if err then
       kong.response.exit(500, "Issue when creating the session with err: " .. err)
     end
 
-    kong.log.err("SESSION CONNECTION")
+    kong.log.debug("SESSION CONNECTION")
     -- Connect to the session
     local _, err = solaceLib.connectSession(session_new)
     if err then
@@ -188,7 +188,7 @@ function plugin:access(plugin_conf)
       kong.response.exit(500, "Issue when connecting the sessions")
     end
 
-    kong.log.err("SESSION CONNECTED TO SOLACE")
+    kong.log.debug("SESSION CONNECTED TO SOLACE")
 
     local session_id = ngx.md5(tostring(session_new[0]))
     kong.solaceSessions[session_id] = session_new
@@ -207,9 +207,9 @@ function plugin:access(plugin_conf)
   -- The Solace SDK handle message buffering and queue sending, no lock logic require
   local random_index = math.random(#connected_sessions)
   local selected_session = connected_sessions[random_index]
-  kong.log.err("PICKED SESSION ", random_index)
+  kong.log.debug("PICKED SESSION ", random_index)
 
-  -- Create message id
+  -- Create message id for ack event receipt
   local message_id = uuid.uuid()
 
   -- Pass the necessary properties and send the message

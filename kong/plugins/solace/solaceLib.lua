@@ -133,7 +133,7 @@ end
 -- Define a session event callback function
 local function sessionEventCallback(session_p, eventInfo_p, user_p)
   -- use print as kong.log not ready for initialization event
-  print("SessionEventCallback")
+  -- print("SessionEventCallback")
 
   if not eventInfo_p or eventInfo_p == ffi.NULL then
     return
@@ -155,13 +155,14 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
   end
 
   if sessionEvent == 1 then
+    print("ANTOINE ISSUE")
     local session_id = ngx.md5(tostring(session_p))
     -- mandatory to delete session outside of the callback to avoid malloc
     kong.worker_events.post_local("solaceFunction", "delete", session_id)
   end
 
-  print("Session event: ", sessionEvent)
-  print("Response Code: ", eventInfo_p.responseCode[0])
+  -- print("Session event: ", sessionEvent)
+  -- print("Response Code: ", eventInfo_p.responseCode[0])
 end
 
 
@@ -321,6 +322,8 @@ end
 function solaceLib.sendMessage(session_p, config, message_id)
   local msg_p = ffi.new("solClient_opaqueMsg_pt[1]")
 
+  kong.log.debug("MESSAGE ALLOCATION")
+
   local rc = SolaceKongLib.solClient_msg_alloc(msg_p)
   if rc ~= 0 then
     solaceLib.solClient_msg_free(msg_p)
@@ -330,6 +333,8 @@ function solaceLib.sendMessage(session_p, config, message_id)
   -- Set Delivery Mode
   local delivery_modes = { DIRECT = 0, PERSISTENT = 16, NONPERSISTENT = 32 }
   local delivery_mode = delivery_modes[config.message_delivery_mode]
+
+  kong.log.debug("MESSAGE SET DELIVERY MODE")
 
   rc = SolaceKongLib.solClient_msg_setDeliveryMode(msg_p[0], delivery_mode)
   if rc ~= 0 then
@@ -349,7 +354,7 @@ function solaceLib.sendMessage(session_p, config, message_id)
   dest = dest:gsub(destNameCapturesPattern, function(key)
     local replacement = captures.named[key]
     if not replacement then
-      kong.log.err("Missing URI capture for key: ", key)
+      kong.log.warn("Missing URI capture for key: ", key)
       return "" -- Remove placeholder if not found
     end
     return replacement
@@ -359,12 +364,15 @@ function solaceLib.sendMessage(session_p, config, message_id)
   dest = dest:gsub("//", "/")
   destination.dest = ffi.cast("const char*", dest)
 
+  kong.log.debug("MESSAGE SET DESTINATION")
+
   rc = SolaceKongLib.solClient_msg_setDestination(msg_p[0], destination, ffi.sizeof(destination))
   if rc ~= 0 then
     solaceLib.solClient_msg_free(msg_p)
     return nil, "solClient_msg_setDestination failed, code: " .. rc
   end
 
+  kong.log.debug("MESSAGE SET ACK")
   -- Set Immediate Acknowledgment
   rc = SolaceKongLib.solClient_msg_setAckImmediately(msg_p[0], true)
   if rc ~= 0 then
@@ -374,6 +382,8 @@ function solaceLib.sendMessage(session_p, config, message_id)
 
    -- Set Message Content
   local message = (config.message_content_type == "CUSTOM") and config.message_content_override or kong.request.get_raw_body()
+
+  kong.log.debug("MESSAGE SET BINARY")
 
   local binaryAttachment = ffi.new("char[?]", #message, message)
   SolaceKongLib.solClient_msg_setBinaryAttachment(msg_p[0], binaryAttachment, #message)
@@ -386,12 +396,16 @@ function solaceLib.sendMessage(session_p, config, message_id)
   local correlation_size = #message_id + 1  -- Include null terminator if needed
   local correlation_p = ffi.new("char[?]", correlation_size, message_id)
   
+  kong.log.debug("MESSAGE SET CORRELATION TAG")
+
   -- Set the correlation tag in the Solace message
   local rc = SolaceKongLib.solClient_msg_setCorrelationTag(msg_p[0], correlation_p, correlation_size)
   if rc ~= 0 then
       kong.log.err("solClient_msg_setCorrelationTag failed, code: ", rc)
   end
   
+
+  kong.log.debug("MESSAGE SENDING")
 
   -- Send Message
   rc = SolaceKongLib.solClient_session_sendMsg(session_p[0], msg_p[0])

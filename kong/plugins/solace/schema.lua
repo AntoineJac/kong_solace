@@ -12,7 +12,8 @@ local list_properties_forbidden = {
   "SESSION_WRITE_TIMEOUT_MS",
   "SESSION_CONNECT_BLOCKING",
   "SESSION_SEND_BLOCKING",
-  "SESSION_ACK_EVENT_MODE"
+  "SESSION_BLOCK_WHILE_CONNECTING",
+  "SESSION_ACK_EVENT_MODE",
 }
 
 local PLUGIN_NAME = "solace"
@@ -172,7 +173,7 @@ local schema = {
               type = "integer",
               required = true,
               default = 3000,
-              between = { 100, 10000 },
+              between = { 100, 100000 },
             },
           },
           {

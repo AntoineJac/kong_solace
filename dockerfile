@@ -20,7 +20,8 @@ RUN apt-get update && \
 RUN mkdir -p /usr/local/kong/solace
 
 # Copy Solace C API
-COPY solace-samples-c-master /usr/local/kong/solace
+COPY solace-lib/lib /usr/local/kong/solace/lib
+COPY solace-lib/build /usr/local/kong/solace/build
 
 # Set library path
 ENV LD_LIBRARY_PATH=/usr/local/kong/solace/lib/linux/x64

@@ -163,7 +163,7 @@ local function sessionEventCallback(session_p, eventInfo_p, user_p)
 
   print("Session event: ", sessionEvent)
   print("Response Code: ", eventInfo_p.responseCode[0])
-  return nil
+  return
 end
 
 

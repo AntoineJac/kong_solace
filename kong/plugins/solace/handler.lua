@@ -222,6 +222,8 @@ function plugin:access(plugin_conf)
     kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
   end
 
+  -- PERSISTENT mode is still generating VM crash due to callback thread
+
   local start_time = math.floor(ngx.now() * 1000)
   local max_wait_time = plugin_conf.ack_max_wait_time_ms
 

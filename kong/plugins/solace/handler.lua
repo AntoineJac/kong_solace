@@ -239,7 +239,7 @@ function plugin:access(plugin_conf)
   -- remove the message to avoid memory leak
   kong.solace_ack_received[message_id] = nil
   
-  kong.response.exit(500, "Message no sent within the send window")
+  kong.response.exit(500, "No callback received within the send window")
 end
 
 -- Runs in the 'access' phase

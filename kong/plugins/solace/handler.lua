@@ -66,8 +66,16 @@ function plugin:configure(configs)
   if not sdk_initialized then
     return
   end
-
+  
   local CONFIG = configs and configs[1] or nil
+
+  -- Remove session when plugin is disabled or removed
+  if not CONFIG then
+    CONFIG = {
+      solace_sdk_log_level = previous_sdk_log_level,
+      solace_session_pool = 0
+    }
+  end
 
   -- check if require changing log level
   local sdk_log_level = CONFIG.solace_sdk_log_level
@@ -215,12 +223,11 @@ function plugin:access(plugin_conf)
 
   -- Pass the necessary properties and send the message
   local _, err = solaceLib.sendMessage(selected_session, plugin_conf, message_id)
+  -- important to collect garbage here to avoid memory leak
+  collectgarbage()
   if err then
     kong.response.exit(504, "Issue when sending the message with err: " .. err)
   end
-
-  -- important to collect garbage here to avoid memory leak
-  collectgarbage()
 
   if plugin_conf.message_delivery_mode == "DIRECT" then
     kong.response.exit(200, "Message sent as Direct so no Guaranteed delivery")
